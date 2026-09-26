@@ -1,88 +1,88 @@
 """
-AlphaPulse - Yahoo Finance / yfinance + Streamlit
+AlphaPulse - free Yahoo Finance market-data backend using yfinance.
 
-Gebruik:
-    pip install -r requirements.txt
-    streamlit run app_yfinance.py
+Run:
+    py -m pip install yfinance
+    py app.py
 
-Benodigd in dezelfde GitHub repository:
-    app_yfinance.py
-    AlphaPulse_yfinance.html
-    requirements.txt
+Then open AlphaPulse_yfinance.html in your browser.
 
-De browser haalt GEEN data rechtstreeks uit Yahoo Finance.
-Streamlit/yfinance haalt de data server-side op en geeft deze door
-aan het AlphaPulse HTML-dashboard.
-
-Er wordt geen mock/demo marktdata gegenereerd.
+The browser does NOT call Yahoo Finance directly. This local Python service
+uses yfinance and exposes only JSON to the HTML dashboard.
 """
 
-from pathlib import Path
+from urllib.parse import urlparse, parse_qs
 import math
 
 import yfinance as yf
 
 
-# ============================================================
-# HULPFUNCTIES
-# ============================================================
+
 
 def clean_number(value):
-    """Zet een waarde veilig om naar float."""
     try:
         value = float(value)
         if math.isfinite(value):
             return value
     except (TypeError, ValueError):
         pass
-
     return None
 
 
 def safe_text(value, default=""):
-    """Zet een waarde veilig om naar tekst."""
     if value is None:
         return default
-
     return str(value)
 
 
-# ============================================================
-# YAHOO FINANCE DATA
-# ============================================================
+
+def get_put_call_ratio(ticker, max_expirations=6):
+    """Calculate aggregate option-volume put/call ratio from Yahoo option chains.
+
+    PCR = total put volume / total call volume. No options data means None.
+    The first available expirations are used to keep Streamlit response time reasonable.
+    """
+    try:
+        expirations = list(ticker.options or [])
+    except Exception:
+        return {"volumeRatio": None, "putVolume": 0, "callVolume": 0, "expirationsUsed": 0}
+
+    if not expirations:
+        return {"volumeRatio": None, "putVolume": 0, "callVolume": 0, "expirationsUsed": 0}
+
+    put_volume = 0
+    call_volume = 0
+    used = 0
+
+    for expiry in expirations[:max_expirations]:
+        try:
+            chain = ticker.option_chain(expiry)
+            calls = chain.calls
+            puts = chain.puts
+            if calls is not None and not calls.empty and "volume" in calls.columns:
+                call_volume += int(calls["volume"].fillna(0).sum())
+            if puts is not None and not puts.empty and "volume" in puts.columns:
+                put_volume += int(puts["volume"].fillna(0).sum())
+            used += 1
+        except Exception:
+            continue
+
+    ratio = (put_volume / call_volume) if call_volume > 0 else None
+    return {
+        "volumeRatio": clean_number(ratio),
+        "putVolume": put_volume,
+        "callVolume": call_volume,
+        "expirationsUsed": used,
+    }
 
 def build_stock(symbol):
-    """
-    Haalt echte Yahoo Finance data op via yfinance.
-
-    Ondersteunt bijvoorbeeld:
-        NVDA
-        AMD
-        PLTR
-        AAPL
-        TSLA
-        JBL
-        ASML.AS
-        SAP.DE
-        BMW.DE
-        enz.
-    """
-
     symbol = symbol.strip().upper()
+    if not symbol or len(symbol) > 15:
+        raise ValueError("Invalid ticker symbol.")
 
-    if not symbol:
-        raise ValueError("Please enter a ticker symbol.")
-
-    if len(symbol) > 15:
-        raise ValueError("Ticker symbol is too long.")
-
-    # Yahoo Finance ticker
     ticker = yf.Ticker(symbol)
 
-    # --------------------------------------------------------
-    # HISTORICAL DATA
-    # --------------------------------------------------------
-
+    # One year gives enough observations for SMA200.
     hist = ticker.history(
         period="1y",
         interval="1d",
@@ -91,721 +91,246 @@ def build_stock(symbol):
     )
 
     if hist is None or hist.empty:
-        raise ValueError(
-            f"No Yahoo Finance data found for {symbol}."
-        )
+        raise ValueError(f"No Yahoo Finance data found for {symbol}.")
 
-    # Alleen rijen met een geldige Close
     hist = hist.dropna(subset=["Close"])
-
     if len(hist) < 30:
-        raise ValueError(
-            f"Yahoo Finance returned too little historical data for {symbol}."
-        )
-
-    # --------------------------------------------------------
-    # HISTORY OMZETTEN NAAR JSON
-    # --------------------------------------------------------
+        raise ValueError(f"Yahoo Finance returned too little history for {symbol}.")
 
     rows = []
-
     for idx, row in hist.iterrows():
-
         date_value = idx.strftime("%Y-%m-%d")
-
-        volume_value = clean_number(
-            row.get("Volume")
-        )
-
-        if volume_value is None:
-            volume_value = 0
-
-        rows.append(
-            {
-                "date": date_value,
-                "open": clean_number(row.get("Open")),
-                "high": clean_number(row.get("High")),
-                "low": clean_number(row.get("Low")),
-                "close": clean_number(row.get("Close")),
-                "adjClose": clean_number(row.get("Adj Close")),
-                "volume": int(volume_value),
-            }
-        )
-
-    # --------------------------------------------------------
-    # LAATSTE DATA
-    # --------------------------------------------------------
+        rows.append({
+            "date": date_value,
+            "open": clean_number(row.get("Open")),
+            "high": clean_number(row.get("High")),
+            "low": clean_number(row.get("Low")),
+            "close": clean_number(row.get("Close")),
+            "adjClose": clean_number(row.get("Adj Close")),
+            "volume": int(row["Volume"]) if clean_number(row.get("Volume")) is not None else 0,
+        })
 
     latest = rows[-1]
+    previous = rows[-2] if len(rows) >= 2 else latest
 
-    if len(rows) >= 2:
-        previous = rows[-2]
-    else:
-        previous = latest
-
-    # --------------------------------------------------------
-    # LAATSTE PRIJS VIA FAST_INFO
-    # --------------------------------------------------------
-
-    live_price = None
-    previous_close = None
-
+    # fast_info is useful for the latest available price when Yahoo provides it.
     try:
         fast = ticker.fast_info
-
-        live_price = clean_number(
-            fast.get("last_price")
-        )
-
-        previous_close = clean_number(
-            fast.get("previous_close")
-        )
-
+        live_price = clean_number(fast.get("last_price"))
+        previous_close = clean_number(fast.get("previous_close"))
     except Exception:
         live_price = None
         previous_close = None
 
-    # Als fast_info geen waarde geeft,
-    # gebruiken we de laatste historische candle.
-    price = (
-        live_price
-        if live_price is not None
-        else latest["close"]
-    )
+    price = live_price or latest["close"]
+    prev_close = previous_close or previous["close"]
+    change = price - prev_close if price is not None and prev_close is not None else 0
+    change_pct = (change / prev_close * 100) if prev_close else 0
 
-    prev_close = (
-        previous_close
-        if previous_close is not None
-        else previous["close"]
-    )
-
-    # --------------------------------------------------------
-    # DAGVERANDERING
-    # --------------------------------------------------------
-
-    if (
-        price is not None
-        and prev_close is not None
-    ):
-        change = price - prev_close
-
-        if prev_close != 0:
-            change_pct = (
-                change / prev_close
-            ) * 100
-        else:
-            change_pct = 0
-
-    else:
-        change = 0
-        change_pct = 0
-
-    # --------------------------------------------------------
-    # COMPANY INFORMATION
-    # --------------------------------------------------------
-
+    # Company metadata. Yahoo can occasionally omit individual fields, so each
+    # value is optional rather than fabricated.
     try:
         info = ticker.info or {}
-
     except Exception:
         info = {}
 
-    # --------------------------------------------------------
-    # CLOSES / VOLUME
-    # --------------------------------------------------------
+    # Real Yahoo options data: aggregate put/call volume ratio across
+    # the first available expirations. Never fabricate a ratio.
+    options = get_put_call_ratio(ticker)
 
-    closes = [
-        r["close"]
-        for r in rows
-        if r["close"] is not None
-    ]
+    closes = [r["close"] for r in rows if r["close"] is not None]
+    volumes = [r["volume"] for r in rows if r["volume"] is not None]
 
-    volumes = [
-        r["volume"]
-        for r in rows
-        if r["volume"] is not None
-    ]
-
-    # Gemiddeld volume laatste 20 handelsdagen
-    recent_volumes = volumes[-20:]
-
-    if recent_volumes:
-        avg_volume = (
-            sum(recent_volumes)
-            / len(recent_volumes)
-        )
-    else:
-        avg_volume = None
-
-    # 1-year low / high
+    avg_volume = sum(volumes[-20:]) / len(volumes[-20:]) if volumes[-20:] else None
     year_low = min(closes)
-
     year_high = max(closes)
-
-    # --------------------------------------------------------
-    # COMPANY PROFILE
-    # --------------------------------------------------------
-
-    company_name = (
-        info.get("longName")
-        or info.get("shortName")
-        or symbol
-    )
 
     profile = {
         "companyName": safe_text(
-            company_name,
-            symbol
+            info.get("longName") or info.get("shortName"), symbol
         ),
-
-        "sector": safe_text(
-            info.get("sector"),
-            "Equities"
-        ),
-
-        "industry": safe_text(
-            info.get("industry"),
-            ""
-        ),
-
-        "website": safe_text(
-            info.get("website"),
-            ""
-        ),
-
-        "mktCap": clean_number(
-            info.get("marketCap")
-        ),
+        "sector": safe_text(info.get("sector"), "Equities"),
+        "industry": safe_text(info.get("industry"), ""),
+        "website": safe_text(info.get("website"), ""),
+        "mktCap": clean_number(info.get("marketCap")),
     }
-
-    # --------------------------------------------------------
-    # QUOTE
-    # --------------------------------------------------------
-
-    if closes:
-
-        last_200 = closes[-200:]
-
-        price_avg_200 = (
-            sum(last_200)
-            / len(last_200)
-        )
-
-    else:
-        price_avg_200 = None
 
     quote = {
         "symbol": symbol,
-
         "name": profile["companyName"],
-
-        "price": clean_number(
-            price
-        ),
-
-        "previousClose": clean_number(
-            prev_close
-        ),
-
-        "change": clean_number(
-            change
-        ),
-
-        "changesPercentage": clean_number(
-            change_pct
-        ),
-
+        "price": clean_number(price),
+        "previousClose": clean_number(prev_close),
+        "change": clean_number(change),
+        "changesPercentage": clean_number(change_pct),
         "marketCap": profile["mktCap"],
-
-        "pe": clean_number(
-            info.get("trailingPE")
-            or info.get("forwardPE")
-        ),
-
+        "pe": clean_number(info.get("trailingPE") or info.get("forwardPE")),
         "volume": latest["volume"],
-
-        "avgVolume": clean_number(
-            avg_volume
-        ),
-
-        "yearLow": clean_number(
-            year_low
-        ),
-
-        "yearHigh": clean_number(
-            year_high
-        ),
-
+        "avgVolume": clean_number(avg_volume),
+        "yearLow": clean_number(year_low),
+        "yearHigh": clean_number(year_high),
         "priceAvg200": clean_number(
-            price_avg_200
-        ),
-
-        "exchange": safe_text(
-            info.get("exchange")
-        ),
-
-        "currency": safe_text(
-            info.get("currency"),
-            "USD"
-        ),
-
-        "marketState": safe_text(
-            info.get("marketState")
-        ),
+            sum(closes[-200:]) / min(200, len(closes))
+        ) if closes else None,
+        "exchange": safe_text(info.get("exchange")),
+        "currency": safe_text(info.get("currency"), "USD"),
+        "marketState": safe_text(info.get("marketState")),
     }
-
-    # --------------------------------------------------------
-    # FUNDAMENTAL METRICS
-    # --------------------------------------------------------
 
     key_metrics = {
-        "roeTTM": clean_number(
-            info.get("returnOnEquity")
-        ),
-
-        "profitMargins": clean_number(
-            info.get("profitMargins")
-        ),
-
-        "revenueGrowth": clean_number(
-            info.get("revenueGrowth")
-        ),
-
-        "debtToEquity": clean_number(
-            info.get("debtToEquity")
-        ),
-
-        "trailingEps": clean_number(
-            info.get("trailingEps")
-        ),
+        "roeTTM": clean_number(info.get("returnOnEquity")),
+        "profitMargins": clean_number(info.get("profitMargins")),
+        "revenueGrowth": clean_number(info.get("revenueGrowth")),
+        "debtToEquity": clean_number(info.get("debtToEquity")),
+        "trailingEps": clean_number(info.get("trailingEps")),
     }
-
-    # --------------------------------------------------------
-    # COMPLETE DATASET
-    # --------------------------------------------------------
 
     return {
         "source": "Yahoo Finance via yfinance",
-
         "symbol": symbol,
-
         "quote": quote,
-
         "profile": profile,
-
         "keyMetrics": key_metrics,
-
+        "options": options,
         "history": rows,
     }
 
 
-# ============================================================
-# STREAMLIT APP
-# ============================================================
-
+# Streamlit entry point. Streamlit Cloud provides the web server.
 def run_streamlit_app():
-
     import json
+    from pathlib import Path
 
     import streamlit as st
-
     import streamlit.components.v1 as components
 
-    # --------------------------------------------------------
-    # PAGE CONFIG
-    # --------------------------------------------------------
-
     st.set_page_config(
-        page_title=(
-            "AlphaPulse AI Swing & "
-            "Momentum Analytics"
-        ),
+        page_title="AlphaPulse AI Swing & Momentum Analytics",
         page_icon="📈",
         layout="wide",
     )
 
-    # --------------------------------------------------------
-    # HEADER
-    # --------------------------------------------------------
-
-    st.markdown(
-        "# AlphaPulse — AI Swing & Momentum Analytics"
-    )
-
+    st.markdown("# AlphaPulse — AI Swing & Momentum Analytics")
     st.caption(
-        "Yahoo Finance / yfinance market data. "
-        "Enter any valid Yahoo Finance ticker. "
+        "Yahoo Finance / yfinance market data. Enter any valid Yahoo Finance ticker. "
         "No FMP API key and no mock/fallback market data."
     )
 
-    # --------------------------------------------------------
-    # TICKER INPUT
-    # --------------------------------------------------------
-
-    with st.form(
-        "ticker_form",
-        clear_on_submit=False
-    ):
-
-        col1, col2 = st.columns(
-            [5, 1]
-        )
-
+    # Use a form so the app only reloads when the user clicks Analyze.
+    with st.form("ticker_form", clear_on_submit=False):
+        col1, col2 = st.columns([5, 1])
         with col1:
-
             ticker_input = st.text_input(
                 "Ticker symbol",
-
-                value=st.session_state.get(
-                    "alpha_ticker",
-                    "NVDA"
-                ),
-
+                value=st.session_state.get("alpha_ticker", "NVDA"),
                 max_chars=15,
-
-                placeholder=(
-                    "e.g. NVDA, AMD, PLTR, "
-                    "AAPL, ASML.AS"
-                ),
-
+                placeholder="e.g. NVDA, AMD, PLTR, AAPL, ASML.AS",
                 help=(
-                    "Enter any valid Yahoo Finance "
-                    "symbol. Examples: NVDA, AMD, "
+                    "Enter any valid Yahoo Finance symbol. Examples: NVDA, AMD, "
                     "PLTR, AAPL, ASML.AS, SAP.DE."
                 ),
             )
-
         with col2:
-
             st.write("")
             st.write("")
-
-            analyze = st.form_submit_button(
-                "🔎 Analyze",
-                use_container_width=True
-            )
-
-    # --------------------------------------------------------
-    # NIEUWE TICKER OPSLAAN
-    # --------------------------------------------------------
+            analyze = st.form_submit_button("🔎 Analyze", use_container_width=True)
 
     if analyze:
-
-        clean_ticker = (
-            ticker_input
-            .strip()
-            .upper()
-        )
-
+        clean_ticker = ticker_input.strip().upper()
         if not clean_ticker:
-
-            st.error(
-                "Please enter a ticker symbol."
-            )
-
+            st.error("Please enter a ticker symbol.")
             st.stop()
+        st.session_state["alpha_ticker"] = clean_ticker
 
-        st.session_state[
-            "alpha_ticker"
-        ] = clean_ticker
-
-    # --------------------------------------------------------
-    # HUIDIGE TICKER
-    # --------------------------------------------------------
-
-    ticker = (
-        st.session_state
-        .get(
-            "alpha_ticker",
-            "NVDA"
-        )
-        .strip()
-        .upper()
-    )
-
-    # --------------------------------------------------------
-    # YAHOO FINANCE OPHALEN
-    # --------------------------------------------------------
+    ticker = st.session_state.get("alpha_ticker", "NVDA").strip().upper()
 
     try:
-
-        with st.spinner(
-            f"Loading Yahoo Finance data for {ticker}..."
-        ):
-
-            data = build_stock(
-                ticker
-            )
-
+        with st.spinner(f"Loading Yahoo Finance data for {ticker}..."):
+            data = build_stock(ticker)
     except Exception as exc:
-
-        st.error(
-            f"Yahoo Finance error for {ticker}: {exc}"
-        )
-
+        st.error(f"Yahoo Finance error for {ticker}: {exc}")
         st.info(
-            "Check the Yahoo Finance ticker symbol. "
-            "Examples: NVDA, AMD, PLTR, AAPL, "
-            "ASML.AS or SAP.DE."
+            "Check the Yahoo Finance ticker symbol. Examples: NVDA, AMD, PLTR, "
+            "AAPL, ASML.AS or SAP.DE."
         )
-
         st.stop()
 
-    # --------------------------------------------------------
-    # HTML DASHBOARD CONTROLEREN
-    # --------------------------------------------------------
-
-    html_path = (
-        Path(__file__).with_name(
-            "AlphaPulse_yfinance.html"
-        )
-    )
-
+    html_path = Path(__file__).with_name("AlphaPulse_yfinance.html")
     if not html_path.exists():
-
-        st.error(
-            "AlphaPulse_yfinance.html "
-            "is missing from the repository."
-        )
-
+        st.error("AlphaPulse_yfinance.html is missing from the repository.")
         st.stop()
 
-    # --------------------------------------------------------
-    # HTML INLEZEN
-    # --------------------------------------------------------
-
-    html = html_path.read_text(
-        encoding="utf-8"
-    )
-
-    # --------------------------------------------------------
-    # DATA VEILIG NAAR JAVASCRIPT
-    # --------------------------------------------------------
-
-    data_json = json.dumps(
-        data,
-        separators=(",", ":"),
-        allow_nan=False
-    )
-
-    ticker_json = json.dumps(
-        ticker
-    )
-
-    # --------------------------------------------------------
-    # JAVASCRIPT BRIDGE
-    # --------------------------------------------------------
+    html = html_path.read_text(encoding="utf-8")
+    data_json = json.dumps(data, separators=(",", ":"), allow_nan=False)
+    ticker_json = json.dumps(ticker)
 
     override = f"""
 <script>
-
 window.__ALPHAPULSE_STOCK_DATA__ = {data_json};
-
 window.__ALPHAPULSE_STREAMLIT_TICKER__ = {ticker_json};
 
-
 /*
- * Streamlit heeft de ticker server-side
- * opgehaald via yfinance.
- *
- * Het HTML-dashboard gebruikt uitsluitend
- * deze echte data.
- *
- * Er wordt GEEN localhost API aangeroepen.
- * Er wordt GEEN fake/demo data gebruikt.
+ * Streamlit already fetched the requested ticker with yfinance.
+ * The embedded HTML must only render that server-provided data.
+ * It must NOT try to call a localhost API or Yahoo Finance directly.
  */
-
-
 window.fetchAndRenderData = async function(symbol) {{
+    const requested = String(symbol || '').toUpperCase();
+    const data = window.__ALPHAPULSE_STOCK_DATA__;
+    const loaded = window.__ALPHAPULSE_STREAMLIT_TICKER__;
 
-    const requested =
-        String(symbol || '').toUpperCase();
-
-    const data =
-        window.__ALPHAPULSE_STOCK_DATA__;
-
-    const loaded =
-        window.__ALPHAPULSE_STREAMLIT_TICKER__;
-
-
-    /*
-     * Controleer of de gevraagde ticker
-     * overeenkomt met de door Streamlit
-     * geladen ticker.
-     */
-
-    if (
-        !data ||
-        !data.quote ||
-        data.quote.symbol !== requested
-    ) {{
-
+    if (!data || !data.quote || data.quote.symbol !== requested) {{
         showError(
-            'Ticker ' +
-            requested +
-            ' is not loaded. ' +
-            'Use the Ticker symbol field above ' +
-            'and click Analyze.'
+            'Ticker ' + requested + ' is not loaded. ' +
+            'Use the Ticker symbol field above and click Analyze.'
         );
-
         return;
     }}
 
-
     try {{
+        const quote = data.quote;
+        const profile = data.profile || {{}};
+        const historyData = Array.isArray(data.history)
+            ? data.history.slice()
+            : [];
+        const keyMetrics = data.keyMetrics || {{}};
 
-        const quote =
-            data.quote;
-
-        const profile =
-            data.profile || {{}};
-
-        const historyData =
-            Array.isArray(data.history)
-                ? data.history.slice()
-                : [];
-
-        const keyMetrics =
-            data.keyMetrics || {{}};
-
-
-        /*
-         * Controle historische data
-         */
-
-        if (
-            !quote ||
-            historyData.length < 30
-        ) {{
-
-            throw new Error(
-                'Insufficient Yahoo Finance '
-                + 'historical data.'
-            );
+        if (!quote || historyData.length < 30) {{
+            throw new Error('Insufficient Yahoo Finance historical data.');
         }}
 
+        historyData.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        /*
-         * Chronologisch sorteren
-         */
-
-        historyData.sort(
-            (a, b) =>
-                new Date(a.date)
-                -
-                new Date(b.date)
-        );
-
-
-        /*
-         * Bestaande AlphaPulse
-         * technische analyse uitvoeren.
-         */
-
-        const analysis =
-            runQuantitativeAnalysis(
-                quote,
-                profile,
-                historyData,
-                keyMetrics
-            );
-
-
-        /*
-         * Dashboard renderen
-         */
-
-        renderOverview(
+        const analysis = runQuantitativeAnalysis(
             quote,
-            profile
-        );
-
-        renderScores(
-            analysis,
-            quote.price
-        );
-
-        renderTechnicalIndicators(
-            analysis
-        );
-
-        renderChart(
+            profile,
             historyData,
-            analysis
+            keyMetrics,
+            options
         );
 
-        renderSummary(
-            loaded,
-            analysis
-        );
-
-
+        renderOverview(quote, profile);
+        renderScores(analysis, quote.price);
+        renderTechnicalIndicators(analysis);
+        renderChart(historyData, analysis);
+        renderSummary(loaded, analysis);
         showLoading(false);
-
         hideError();
-
-    }}
-
-    catch (error) {{
-
+    }} catch (error) {{
         console.error(error);
-
-        showError(
-            'Yahoo Finance analysis error: '
-            +
-            error.message
-        );
-
+        showError('Yahoo Finance analysis error: ' + error.message);
         showLoading(false);
     }}
-
 }};
 
-
-/*
- * Dashboard automatisch laden
- * voor de ticker die Streamlit
- * heeft opgehaald.
- */
-
-window.addEventListener(
-    'load',
-    function() {{
-
-        window.fetchAndRenderData(
-            {ticker_json}
-        );
-
-    }}
-);
-
+window.addEventListener('load', function() {{
+    window.fetchAndRenderData({ticker_json});
+}});
 </script>
 """
 
-    # --------------------------------------------------------
-    # JAVASCRIPT TOEVOEGEN
-    # --------------------------------------------------------
+    html = html.replace("</body>", override + "\n</body>")
+    components.html(html, height=1550, scrolling=True)
 
-    html = html.replace(
-        "</body>",
-        override +
-        "\n</body>"
-    )
-
-    # --------------------------------------------------------
-    # DASHBOARD TONEN
-    # --------------------------------------------------------
-
-    components.html(
-        html,
-        height=1550,
-        scrolling=True
-    )
-
-
-# ============================================================
-# START STREAMLIT
-# ============================================================
 
 if __name__ == "__main__":
     run_streamlit_app()
