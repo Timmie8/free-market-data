@@ -407,6 +407,16 @@
                             </div>
                             <span id="techBBBadge" class="text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300">Normal</span>
                         </div>
+
+                        <!-- Indicator 7: Options Put/Call Ratio -->
+                        <div class="bg-darkbg/60 border border-cardborder/80 rounded-xl p-3 flex items-center justify-between">
+                            <div>
+                                <div class="text-xs font-semibold text-gray-300">Options Put / Call Ratio</div>
+                                <div id="techPcrVal" class="text-lg font-bold font-mono text-white mt-0.5">--</div>
+                                <div id="techPcrDetail" class="text-[10px] text-gray-500 mt-0.5">Yahoo options volume</div>
+                            </div>
+                            <span id="techPcrBadge" class="text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300">No Data</span>
+                        </div>
                     </div>
                 </div>
 
@@ -565,7 +575,7 @@
             }
         }
 
-        function runQuantitativeAnalysis(quote, profile, history, keyMetrics) {
+        function runQuantitativeAnalysis(quote, profile, history, keyMetrics, options = {}) {
             const prices = history.map(h => h.close);
             const currentPrice = quote.price || prices[prices.length - 1];
 
@@ -636,6 +646,8 @@
 
             return {
                 currentPrice,
+                options,
+                putCallRatio: options && options.volumeRatio != null ? options.volumeRatio : null,
                 rsi: rsiVal,
                 macd: macdObj,
                 stochastic: stochVal,
@@ -903,6 +915,39 @@
             } else {
                 stochBadge.textContent = 'Neutral Zone';
                 stochBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300';
+            }
+
+            // Options Put/Call Ratio: lower ratio is generally more bullish.
+            const pcrVal = document.getElementById('techPcrVal');
+            const pcrBadge = document.getElementById('techPcrBadge');
+            const pcrDetail = document.getElementById('techPcrDetail');
+            const pcr = analysis.putCallRatio;
+            const options = analysis.options || {};
+
+            if (pcr != null && Number.isFinite(Number(pcr))) {
+                const ratio = Number(pcr);
+                pcrVal.textContent = ratio.toFixed(2);
+                pcrDetail.textContent = `Puts ${Number(options.putVolume || 0).toLocaleString()} / Calls ${Number(options.callVolume || 0).toLocaleString()}`;
+
+                if (ratio < 0.70) {
+                    pcrBadge.textContent = 'Bullish';
+                    pcrBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-emerald-500/20 text-emerald-400';
+                    pcrVal.className = 'text-lg font-bold font-mono text-emerald-400 mt-0.5';
+                } else if (ratio <= 1.00) {
+                    pcrBadge.textContent = 'Neutral';
+                    pcrBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300';
+                    pcrVal.className = 'text-lg font-bold font-mono text-white mt-0.5';
+                } else {
+                    pcrBadge.textContent = 'Bearish';
+                    pcrBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-red-500/20 text-red-400';
+                    pcrVal.className = 'text-lg font-bold font-mono text-red-400 mt-0.5';
+                }
+            } else {
+                pcrVal.textContent = '--';
+                pcrDetail.textContent = 'No Yahoo options data';
+                pcrBadge.textContent = 'No Data';
+                pcrBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300';
+                pcrVal.className = 'text-lg font-bold font-mono text-gray-400 mt-0.5';
             }
         }
 
