@@ -1,208 +1,109 @@
-"""
-AlphaPulse - free Yahoo Finance market-data backend using yfinance.
-
-Run:
-    py -m pip install yfinance
-    py app.py
-
-Then open AlphaPulse_yfinance.html in your browser.
-
-The browser does NOT call Yahoo Finance directly. This local Python service
-uses yfinance and exposes only JSON to the HTML dashboard.
-"""
-
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse, parse_qs
 import json
-import math
-import traceback
+from pathlib import Path
 
-import yfinance as yf
+import streamlit as st
+import streamlit.components.v1 as components
 
+from app_yfinance import build_stock
 
-HOST = "127.0.0.1"
-PORT = 5000
+st.set_page_config(
+    page_title="AlphaPulse AI Swing & Momentum Analytics",
+    page_icon="📈",
+    layout="wide",
+)
 
+st.markdown("### AlphaPulse — Yahoo Finance / yfinance")
+st.caption("Market data is fetched server-side with yfinance. No FMP API key and no mock/fallback market data.")
 
-def clean_number(value):
-    try:
-        value = float(value)
-        if math.isfinite(value):
-            return value
-    except (TypeError, ValueError):
-        pass
-    return None
+ticker = st.text_input(
+    "Ticker symbol",
+    value="NVDA",
+    max_chars=15,
+    help="Enter a US stock ticker, for example NVDA, AMD, PLTR or AAPL.",
+).strip().upper()
 
+if not ticker:
+    st.warning("Enter a ticker symbol.")
+    st.stop()
 
-def safe_text(value, default=""):
-    if value is None:
-        return default
-    return str(value)
+try:
+    with st.spinner(f"Loading Yahoo Finance data for {ticker}..."):
+        data = build_stock(ticker)
+except Exception as exc:
+    st.error(f"Yahoo Finance error for {ticker}: {exc}")
+    st.info("Check that the ticker exists and try again.")
+    st.stop()
 
+html_path = Path(__file__).with_name("AlphaPulse_yfinance.html")
+html = html_path.read_text(encoding="utf-8")
 
-def build_stock(symbol):
-    symbol = symbol.strip().upper()
-    if not symbol or len(symbol) > 15:
-        raise ValueError("Invalid ticker symbol.")
+bridge = r"""
+<script>
+window.__ALPHAPULSE_STOCK_DATA__ = __STOCK_DATA_PLACEHOLDER__;
+</script>
+"""
 
-    ticker = yf.Ticker(symbol)
+# Override the browser-side fetch function with the server-fetched yfinance data.
+override = r"""
+<script>
+window.__ALPHAPULSE_STOCK_DATA__ = __STOCK_DATA_PLACEHOLDER__;
 
-    # One year gives enough observations for SMA200.
-    hist = ticker.history(
-        period="1y",
-        interval="1d",
-        auto_adjust=False,
-        actions=False,
-    )
+window.fetchAndRenderData = async function(symbol) {
+        const requested = String(symbol || "").toUpperCase();
+        const embedded = window.__ALPHAPULSE_STOCK_DATA__;
 
-    if hist is None or hist.empty:
-        raise ValueError(f"No Yahoo Finance data found for {symbol}.")
+        if (!embedded || !embedded.quote || embedded.quote.symbol !== requested) {
+            const banner = document.getElementById("errorBanner");
+            const msg = document.getElementById("errorMessage");
+            if (banner && msg) {
+                msg.textContent = `Yahoo Finance data for ${requested} is not loaded. Change the Streamlit ticker field above and rerun.`;
+                banner.classList.remove("hidden");
+            }
+            return;
+        }
 
-    hist = hist.dropna(subset=["Close"])
-    if len(hist) < 30:
-        raise ValueError(f"Yahoo Finance returned too little history for {symbol}.")
+        try {
+            showLoading(true);
+            hideError();
 
-    rows = []
-    for idx, row in hist.iterrows():
-        date_value = idx.strftime("%Y-%m-%d")
-        rows.append({
-            "date": date_value,
-            "open": clean_number(row.get("Open")),
-            "high": clean_number(row.get("High")),
-            "low": clean_number(row.get("Low")),
-            "close": clean_number(row.get("Close")),
-            "adjClose": clean_number(row.get("Adj Close")),
-            "volume": int(row["Volume"]) if clean_number(row.get("Volume")) is not None else 0,
-        })
+            const quote = embedded.quote;
+            const profile = embedded.profile || {};
+            const keyMetrics = embedded.keyMetrics || {};
+            const historyData = Array.isArray(embedded.history) ? embedded.history.slice() : [];
 
-    latest = rows[-1]
-    previous = rows[-2] if len(rows) >= 2 else latest
+            historyData.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    # fast_info is useful for the latest available price when Yahoo provides it.
-    try:
-        fast = ticker.fast_info
-        live_price = clean_number(fast.get("last_price"))
-        previous_close = clean_number(fast.get("previous_close"))
-    except Exception:
-        live_price = None
-        previous_close = None
+            if (historyData.length < 30) {
+                throw new Error("Insufficient Yahoo Finance history.");
+            }
 
-    price = live_price or latest["close"]
-    prev_close = previous_close or previous["close"]
-    change = price - prev_close if price is not None and prev_close is not None else 0
-    change_pct = (change / prev_close * 100) if prev_close else 0
+            const analysis = runQuantitativeAnalysis(
+                quote, profile, historyData, keyMetrics
+            );
 
-    # Company metadata. Yahoo can occasionally omit individual fields, so each
-    # value is optional rather than fabricated.
-    try:
-        info = ticker.info or {}
-    except Exception:
-        info = {}
+            renderOverview(quote, profile);
+            renderScores(analysis, quote.price);
+            renderTechnicalIndicators(analysis);
+            renderChart(historyData, analysis);
+            renderSummary(requested, analysis);
+            showLoading(false);
+        } catch (error) {
+            console.error(error);
+            showError(`Yahoo Finance data error: ${error.message}`);
+            showLoading(false);
+        }
+    };
 
-    closes = [r["close"] for r in rows if r["close"] is not None]
-    volumes = [r["volume"] for r in rows if r["volume"] is not None]
+// Reload the dashboard using the server-provided data.
+window.fetchAndRenderData(requestedTicker);
+</script>
+"""
+# requestedTicker is injected safely as JSON.
+override = override.replace(
+    "window.fetchAndRenderData(requestedTicker);",
+    f"window.fetchAndRenderData({json.dumps(ticker)});"
+)
+data_json = json.dumps(data, separators=(",", ":"), allow_nan=False)
+html = html.replace("</body>", override.replace("__STOCK_DATA_PLACEHOLDER__", data_json) + "\n</body>")
 
-    avg_volume = sum(volumes[-20:]) / len(volumes[-20:]) if volumes[-20:] else None
-    year_low = min(closes)
-    year_high = max(closes)
-
-    profile = {
-        "companyName": safe_text(
-            info.get("longName") or info.get("shortName"), symbol
-        ),
-        "sector": safe_text(info.get("sector"), "Equities"),
-        "industry": safe_text(info.get("industry"), ""),
-        "website": safe_text(info.get("website"), ""),
-        "mktCap": clean_number(info.get("marketCap")),
-    }
-
-    quote = {
-        "symbol": symbol,
-        "name": profile["companyName"],
-        "price": clean_number(price),
-        "previousClose": clean_number(prev_close),
-        "change": clean_number(change),
-        "changesPercentage": clean_number(change_pct),
-        "marketCap": profile["mktCap"],
-        "pe": clean_number(info.get("trailingPE") or info.get("forwardPE")),
-        "volume": latest["volume"],
-        "avgVolume": clean_number(avg_volume),
-        "yearLow": clean_number(year_low),
-        "yearHigh": clean_number(year_high),
-        "priceAvg200": clean_number(
-            sum(closes[-200:]) / min(200, len(closes))
-        ) if closes else None,
-        "exchange": safe_text(info.get("exchange")),
-        "currency": safe_text(info.get("currency"), "USD"),
-        "marketState": safe_text(info.get("marketState")),
-    }
-
-    key_metrics = {
-        "roeTTM": clean_number(info.get("returnOnEquity")),
-        "profitMargins": clean_number(info.get("profitMargins")),
-        "revenueGrowth": clean_number(info.get("revenueGrowth")),
-        "debtToEquity": clean_number(info.get("debtToEquity")),
-        "trailingEps": clean_number(info.get("trailingEps")),
-    }
-
-    return {
-        "source": "Yahoo Finance via yfinance",
-        "symbol": symbol,
-        "quote": quote,
-        "profile": profile,
-        "keyMetrics": key_metrics,
-        "history": rows,
-    }
-
-
-class Handler(BaseHTTPRequestHandler):
-    def send_json(self, payload, status=200):
-        body = json.dumps(payload, separators=(",", ":"), allow_nan=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
-
-    def do_GET(self):
-        try:
-            parsed = urlparse(self.path)
-
-            if parsed.path == "/api/health":
-                return self.send_json({"ok": True, "source": "yfinance"})
-
-            if parsed.path != "/api/stock":
-                return self.send_json({"error": "Use /api/stock?symbol=NVDA"}, 404)
-
-            params = parse_qs(parsed.query)
-            symbol = params.get("symbol", [""])[0]
-            if not symbol:
-                return self.send_json({"error": "Missing symbol parameter."}, 400)
-
-            data = build_stock(symbol)
-            self.send_json(data)
-
-        except Exception as exc:
-            traceback.print_exc()
-            self.send_json({
-                "error": f"Yahoo Finance/yfinance error: {type(exc).__name__}: {exc}"
-            }, 500)
-
-    def log_message(self, fmt, *args):
-        print(f"[yfinance] {self.address_string()} - {fmt % args}")
-
-
-if __name__ == "__main__":
-    print(f"AlphaPulse yfinance backend running at http://{HOST}:{PORT}")
-    print("Open AlphaPulse_yfinance.html in your browser.")
-    print("Press Ctrl+C to stop.")
-    HTTPServer((HOST, PORT), Handler).serve_forever()
+components.html(html, height=1500, scrolling=True)
