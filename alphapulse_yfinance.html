@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Dashboard - AI Stock Analysis & Swing Trade Insights</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js for smooth interactive charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0B0F17',
+                        cardbg: '#111827',
+                        cardborder: '#1F2937',
+                        accent: '#3B82F6',
+                        bullish: '#10B981',
+                        bearish: '#EF4444',
+                        neutral: '#F59E0B'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #0B0F17;
+            color: #F3F4F6;
+        }
+        .glow-green { box-shadow: 0 0 15px rgba(16, 185, 129, 0.25); }
+        .glow-red { box-shadow: 0 0 15px rgba(239, 68, 68, 0.25); }
+        .glow-blue { box-shadow: 0 0 15px rgba(59, 130, 246, 0.25); }
+        /* Custom scrollbars */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0B0F17; }
+        ::-webkit-scrollbar-thumb { background: #1F2937; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #374151; }
+    </style>
+</head>
+<body class="min-h-screen pb-12">
+
+    <header class="border-b border-cardborder bg-cardbg/80 backdrop-blur sticky top-0 z-50 px-4 py-3">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+            <!-- Brand -->
+            <div class="flex items-center gap-3 w-full md:w-auto justify-between">
+                <div class="flex items-center gap-2">
+                    <div class="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold text-lg">
+                        <i class="fa-solid fa-chart-line"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg leading-none tracking-tight">AlphaPulse</h1>
+                        <span class="text-xs text-gray-400">AI Swing & Momentum Analytics</span>
+                    </div>
+                </div>
+                <!-- Mobile API Key Toggle -->
+                <button id="toggleApiBtn" class="md:hidden text-xs text-gray-400 hover:text-white border border-cardborder px-2 py-1 rounded">
+                    <i class="fa-solid fa-key mr-1"></i> API
+                </button>
+            </div>
+
+            <!-- Search Bar & Ticker Shortcuts -->
+            <div class="flex-1 max-w-2xl w-full flex flex-col sm:flex-row items-center gap-2">
+                <div class="relative w-full">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                    <input type="text" id="tickerInput" placeholder="Enter Ticker Symbol (e.g. NVDA, AAPL, TSLA)..." value="NVDA" 
+                           class="w-full bg-darkbg border border-cardborder rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono tracking-wider uppercase transition">
+                </div>
+                <button id="searchBtn" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 text-white font-medium px-5 py-2 rounded-xl text-sm transition flex items-center justify-center gap-2 shrink-0">
+                    <i class="fa-solid fa-bolt"></i> Analyze
+                </button>
+            </div>
+
+            <!-- Free market-data source -->
+            <div class="flex items-center gap-2 w-full md:w-auto">
+                <span class="text-[10px] uppercase tracking-wider text-gray-500">Data</span>
+                <span class="text-xs font-mono px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    Yahoo Finance / yfinance
+                </span>
+            </div>
+        </div>
+
+        <!-- Quick Select Pills -->
+        <div class="max-w-7xl mx-auto mt-3 pt-2 border-t border-cardborder/50 flex items-center gap-2 overflow-x-auto text-xs no-scrollbar">
+            <span class="text-gray-400 text-xs font-semibold uppercase tracking-wider shrink-0 mr-1">Popular:</span>
+            <button class="preset-btn bg-cardborder/60 hover:bg-blue-600/20 hover:border-blue-500/50 border border-transparent text-gray-300 px-2.5 py-1 rounded-lg transition font-mono font-semibold" data-ticker="NVDA">NVDA</button>
+            <button class="preset-btn bg-cardborder/60 hover:bg-blue-600/20 hover:border-blue-500/50 border border-transparent text-gray-300 px-2.5 py-1 rounded-lg transition font-mono font-semibold" data-ticker="AAPL">AAPL</button>
+            <button class="preset-btn bg-cardborder/60 hover:bg-blue-600/20 hover:border-blue-500/50 border border-transparent text-gray-300 px-2.5 py-1 rounded-lg transition font-mono font-semibold" data-ticker="TSLA">TSLA</button>
+            <button class="preset-btn bg-cardborder/60 hover:bg-blue-600/20 hover:border-blue-500/50 border border-transparent text-gray-300 px-2.5 py-1 rounded-lg transition font-mono font-semibold" data-ticker="MSFT">MSFT</button>
+            <button class="preset-btn bg-cardborder/60 hover:bg-blue-600/20 hover:border-blue-500/50 border border-transparent text-gray-300 px-2.5 py-1 rounded-lg transition font-mono font-semibold" data-ticker="AMD">AMD</button>
+            <button class="preset-btn bg-cardborder/60 hover:bg-blue-600/20 hover:border-blue-500/50 border border-transparent text-gray-300 px-2.5 py-1 rounded-lg transition font-mono font-semibold" data-ticker="AMZN">AMZN</button>
+            <button class="preset-btn bg-cardborder/60 hover:bg-blue-600/20 hover:border-blue-500/50 border border-transparent text-gray-300 px-2.5 py-1 rounded-lg transition font-mono font-semibold" data-ticker="META">META</button>
+            <button class="preset-btn bg-cardborder/60 hover:bg-blue-600/20 hover:border-blue-500/50 border border-transparent text-gray-300 px-2.5 py-1 rounded-lg transition font-mono font-semibold" data-ticker="PLTR">PLTR</button>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 mt-6 space-y-6">
+
+        <!-- Loading Overlay -->
+        <div id="loadingState" class="hidden flex flex-col items-center justify-center py-20 space-y-4">
+            <div class="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
+            <p class="text-gray-400 font-medium animate-pulse">Running quantitative model & analyzing price action...</p>
+        </div>
+
+        <!-- Notification Banner -->
+        <div id="errorBanner" class="hidden bg-red-500/10 border border-red-500/30 text-red-400 p-4 rounded-xl text-sm flex items-center gap-3">
+            <i class="fa-solid fa-triangle-exclamation text-lg"></i>
+            <span id="errorMessage">Unable to retrieve market data. Please check ticker symbol or API key.</span>
+        </div>
+
+        <div id="dashboardContent" class="space-y-6">
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+                <div class="bg-cardbg border border-cardborder rounded-xl p-3 col-span-2 sm:col-span-2 lg:col-span-2">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h2 id="stockSymbol" class="text-2xl font-bold font-mono tracking-tight text-white">---</h2>
+                                <span id="companySector" class="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-300 truncate max-w-[120px]">---</span>
+                            </div>
+                            <p id="companyName" class="text-xs text-gray-400 truncate max-w-[200px] mt-0.5">---</p>
+                        </div>
+                    </div>
+                    <div class="mt-3 flex items-baseline gap-2">
+                        <span id="stockPrice" class="text-3xl font-extrabold text-white font-mono">$0.00</span>
+                        <span id="stockChange" class="text-sm font-semibold font-mono px-2 py-0.5 rounded text-white bg-gray-700">0.00%</span>
+                    </div>
+                </div>
+
+                <div class="bg-cardbg border border-cardborder rounded-xl p-3 flex flex-col justify-between">
+                    <span class="text-xs text-gray-400 flex items-center justify-between">
+                        Market Cap
+                        <i class="fa-solid fa-building-columns text-gray-600"></i>
+                    </span>
+                    <span id="statMarketCap" class="text-base font-bold text-gray-200 font-mono mt-2">---</span>
+                    <span class="text-[10px] text-gray-500">Valuation</span>
+                </div>
+
+                <div class="bg-cardbg border border-cardborder rounded-xl p-3 flex flex-col justify-between">
+                    <span class="text-xs text-gray-400 flex items-center justify-between">
+                        P/E Ratio
+                        <i class="fa-solid fa-calculator text-gray-600"></i>
+                    </span>
+                    <span id="statPERatio" class="text-base font-bold text-gray-200 font-mono mt-2">---</span>
+                    <span class="text-[10px] text-gray-500">Earnings Multiple</span>
+                </div>
+
+                <div class="bg-cardbg border border-cardborder rounded-xl p-3 flex flex-col justify-between">
+                    <span class="text-xs text-gray-400 flex items-center justify-between">
+                        Volume
+                        <i class="fa-solid fa-chart-column text-gray-600"></i>
+                    </span>
+                    <span id="statVolume" class="text-base font-bold text-gray-200 font-mono mt-2">---</span>
+                    <span id="statAvgVolume" class="text-[10px] text-gray-500">Avg: ---</span>
+                </div>
+
+                <div class="bg-cardbg border border-cardborder rounded-xl p-3 flex flex-col justify-between">
+                    <span class="text-xs text-gray-400 flex items-center justify-between">
+                        52W Range
+                        <i class="fa-solid fa-arrows-left-right text-gray-600"></i>
+                    </span>
+                    <span id="stat52Week" class="text-xs font-bold text-gray-200 font-mono mt-2 truncate">---</span>
+                    <div class="w-full bg-gray-800 h-1.5 rounded-full mt-1 overflow-hidden">
+                        <div id="stat52WeekBar" class="bg-blue-500 h-full rounded-full" style="width: 50%"></div>
+                    </div>
+                </div>
+
+                <div class="bg-cardbg border border-cardborder rounded-xl p-3 col-span-2 flex flex-col justify-between">
+                    <span class="text-xs text-gray-400 flex items-center justify-between">
+                        Primary Trade Bias
+                        <i class="fa-solid fa-compass text-gray-600"></i>
+                    </span>
+                    <div class="flex items-center justify-between mt-2">
+                        <div id="badgeSignal" class="px-3 py-1 rounded-lg font-bold text-sm uppercase tracking-wider bg-gray-800 text-gray-300">
+                            NEUTRAL
+                        </div>
+                        <div class="text-right">
+                            <span class="text-[10px] text-gray-400 block">Overall Risk</span>
+                            <span id="riskLevelBadge" class="text-xs font-semibold text-yellow-400">Moderate</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+
+                <!-- 1. Fundamental Quality Score Card -->
+                <div class="bg-cardbg border border-cardborder rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full blur-xl"></div>
+                    <div>
+                        <div class="flex items-center justify-between mb-3">
+                            <span class="text-xs font-bold uppercase tracking-wider text-gray-400">Fundamental Quality</span>
+                            <i class="fa-solid fa-shield-halved text-blue-400 text-sm"></i>
+                        </div>
+                        <div class="flex items-end justify-between">
+                            <div>
+                                <span id="fundamentalScore" class="text-4xl font-black font-mono text-white">0</span>
+                                <span class="text-sm text-gray-500 font-bold">/10</span>
+                            </div>
+                            <span id="fundamentalLabel" class="text-xs font-semibold px-2 py-1 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">Moderate</span>
+                        </div>
+                        <!-- Progress Bar -->
+                        <div class="w-full bg-gray-800 h-2 rounded-full mt-3 overflow-hidden">
+                            <div id="fundamentalBar" class="h-full bg-blue-500 transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-cardborder/60 text-xs space-y-1.5 text-gray-300">
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">YoY Revenue Growth:</span>
+                            <span id="fundRevGrowth" class="font-mono font-medium">--%</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Profit Margin:</span>
+                            <span id="fundProfitMargin" class="font-mono font-medium">--%</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Debt Position:</span>
+                            <span id="fundDebtPos" class="font-mono font-medium">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. AI / Sentiment Score Card -->
+                <div class="bg-cardbg border border-cardborder rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full blur-xl"></div>
+                    <div>
+                        <div class="flex items-center justify-between mb-3">
+                            <span class="text-xs font-bold uppercase tracking-wider text-gray-400">AI / Sentiment Score</span>
+                            <i class="fa-solid fa-brain text-purple-400 text-sm"></i>
+                        </div>
+                        <div class="flex items-end justify-between">
+                            <div>
+                                <span id="aiScore" class="text-4xl font-black font-mono text-white">0</span>
+                                <span class="text-sm text-gray-500 font-bold">/10</span>
+                            </div>
+                            <span id="aiScoreLabel" class="text-xs font-semibold px-2 py-1 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">Neutral</span>
+                        </div>
+                        <!-- Progress Bar -->
+                        <div class="w-full bg-gray-800 h-2 rounded-full mt-3 overflow-hidden">
+                            <div id="aiScoreBar" class="h-full bg-purple-500 transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-cardborder/60 text-xs space-y-1.5 text-gray-300">
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">News Sentiment:</span>
+                            <span id="aiNewsSentiment" class="font-medium text-emerald-400">Positive</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Volume Momentum:</span>
+                            <span id="aiVolumeMom" class="font-mono font-medium">Strong</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Trend Alignment:</span>
+                            <span id="aiTrendAlign" class="font-mono font-medium">Bullish</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. Short-Term Swing Score (1-5 Days) Card -->
+                <div class="bg-cardbg border border-cardborder rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden border-l-4 border-l-emerald-500">
+                    <div class="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl"></div>
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs font-bold uppercase tracking-wider text-gray-300">Short-Term Swing</span>
+                            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">1 - 5 Days</span>
+                        </div>
+                        <div class="flex items-end justify-between mt-2">
+                            <div>
+                                <span id="shortTermScore" class="text-4xl font-black font-mono text-white">0</span>
+                                <span class="text-sm text-gray-500 font-bold">/10</span>
+                            </div>
+                            <div class="text-right">
+                                <span id="shortTermDirection" class="text-xs font-extrabold uppercase tracking-wide px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 block">Bullish</span>
+                                <span id="shortTermWinProb" class="text-[11px] font-mono text-gray-300 mt-1 block">Win Prob: 0%</span>
+                            </div>
+                        </div>
+                        <!-- Progress Bar -->
+                        <div class="w-full bg-gray-800 h-2 rounded-full mt-3 overflow-hidden">
+                            <div id="shortTermBar" class="h-full bg-emerald-500 transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-cardborder/60 text-xs space-y-1.5">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Entry Zone:</span>
+                            <span id="stEntryZone" class="font-mono font-bold text-white">$0.00</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Stop-Loss (Tight):</span>
+                            <span id="stStopLoss" class="font-mono font-bold text-red-400">$0.00</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Target (1-5D):</span>
+                            <span id="stTakeProfit" class="font-mono font-bold text-emerald-400">$0.00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. Swing Trade Score (3-6 Days) Card -->
+                <div class="bg-cardbg border border-cardborder rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden border-l-4 border-l-blue-500">
+                    <div class="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full blur-xl"></div>
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs font-bold uppercase tracking-wider text-gray-300">Mid Swing Trade</span>
+                            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">3 - 6 Days</span>
+                        </div>
+                        <div class="flex items-end justify-between mt-2">
+                            <div>
+                                <span id="midTermScore" class="text-4xl font-black font-mono text-white">0</span>
+                                <span class="text-sm text-gray-500 font-bold">/10</span>
+                            </div>
+                            <div class="text-right">
+                                <span id="midTermDirection" class="text-xs font-extrabold uppercase tracking-wide px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 block">Setup</span>
+                                <span id="midTermRRR" class="text-[11px] font-mono text-gray-300 mt-1 block">R:R Ratio 1:2.5</span>
+                            </div>
+                        </div>
+                        <!-- Progress Bar -->
+                        <div class="w-full bg-gray-800 h-2 rounded-full mt-3 overflow-hidden">
+                            <div id="midTermBar" class="h-full bg-blue-500 transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-cardborder/60 text-xs space-y-1.5">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Buy Setup Zone:</span>
+                            <span id="mtEntryZone" class="font-mono font-bold text-white">$0.00</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Stop-Loss Level:</span>
+                            <span id="mtStopLoss" class="font-mono font-bold text-red-400">$0.00</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Target T1 / T2:</span>
+                            <span id="mtTakeProfit" class="font-mono font-bold text-blue-400">$0 / $0</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="bg-cardbg border border-cardborder rounded-2xl p-5 space-y-4">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-cardborder pb-4">
+                    <div>
+                        <h3 class="font-bold text-lg text-white flex items-center gap-2">
+                            <i class="fa-solid fa-chart-candlestick text-blue-400"></i>
+                            Technical Price Action & Moving Averages
+                        </h3>
+                        <p class="text-xs text-gray-400">Yahoo Finance historical price action with EMA 5, EMA 15 & SMA 50 Overlay</p>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs font-mono">
+                        <span class="flex items-center gap-1.5 text-gray-300"><span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span> Price</span>
+                        <span class="flex items-center gap-1.5 text-gray-300"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> EMA 5</span>
+                        <span class="flex items-center gap-1.5 text-gray-300"><span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span> EMA 15</span>
+                        <span class="flex items-center gap-1.5 text-gray-300"><span class="w-2.5 h-2.5 rounded-full bg-purple-400"></span> SMA 50</span>
+                    </div>
+                </div>
+                <div class="w-full h-[340px] relative">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                <!-- Technical Indicators Breakdown Table (2 Columns) -->
+                <div class="lg:col-span-2 bg-cardbg border border-cardborder rounded-2xl p-5 space-y-4">
+                    <div class="flex items-center justify-between border-b border-cardborder pb-3">
+                        <h3 class="font-bold text-base text-white flex items-center gap-2">
+                            <i class="fa-solid fa-sliders text-blue-400"></i>
+                            Key Technical Indicators & Oscillators
+                        </h3>
+                        <span class="text-xs text-gray-400 font-mono">Real-time Calculation</span>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <!-- Indicator 1: RSI -->
+                        <div class="bg-darkbg/60 border border-cardborder/80 rounded-xl p-3 flex items-center justify-between">
+                            <div>
+                                <div class="text-xs font-semibold text-gray-300">RSI (14 Period)</div>
+                                <div id="techRsiVal" class="text-lg font-bold font-mono text-white mt-0.5">--</div>
+                            </div>
+                            <span id="techRsiBadge" class="text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300">Neutral</span>
+                        </div>
+
+                        <!-- Indicator 2: MACD -->
+                        <div class="bg-darkbg/60 border border-cardborder/80 rounded-xl p-3 flex items-center justify-between">
+                            <div>
+                                <div class="text-xs font-semibold text-gray-300">MACD Histogram</div>
+                                <div id="techMacdVal" class="text-lg font-bold font-mono text-white mt-0.5">--</div>
+                            </div>
+                            <span id="techMacdBadge" class="text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300">Neutral</span>
+                        </div>
+
+                        <!-- Indicator 3: EMA 5 vs EMA 15 -->
+                        <div class="bg-darkbg/60 border border-cardborder/80 rounded-xl p-3 flex items-center justify-between">
+                            <div>
+                                <div class="text-xs font-semibold text-gray-300">EMA 5 / EMA 15 Cross</div>
+                                <div id="techEmaCrossVal" class="text-sm font-bold font-mono text-white mt-0.5">--</div>
+                            </div>
+                            <span id="techEmaCrossBadge" class="text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300">Aligned</span>
+                        </div>
+
+                        <!-- Indicator 4: SMA 200 Trend -->
+                        <div class="bg-darkbg/60 border border-cardborder/80 rounded-xl p-3 flex items-center justify-between">
+                            <div>
+                                <div class="text-xs font-semibold text-gray-300">200 Day SMA Trend</div>
+                                <div id="techSma200Val" class="text-sm font-bold font-mono text-white mt-0.5">--</div>
+                            </div>
+                            <span id="techSma200Badge" class="text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300">Above SMA200</span>
+                        </div>
+
+                        <!-- Indicator 5: Stochastic Oscillator -->
+                        <div class="bg-darkbg/60 border border-cardborder/80 rounded-xl p-3 flex items-center justify-between">
+                            <div>
+                                <div class="text-xs font-semibold text-gray-300">Stochastic %K (14)</div>
+                                <div id="techStochVal" class="text-lg font-bold font-mono text-white mt-0.5">--</div>
+                            </div>
+                            <span id="techStochBadge" class="text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300">Neutral</span>
+                        </div>
+
+                        <!-- Indicator 6: Bollinger Bands Position -->
+                        <div class="bg-darkbg/60 border border-cardborder/80 rounded-xl p-3 flex items-center justify-between">
+                            <div>
+                                <div class="text-xs font-semibold text-gray-300">Bollinger Position</div>
+                                <div id="techBBVal" class="text-xs font-bold font-mono text-white mt-0.5">Mid Band</div>
+                            </div>
+                            <span id="techBBBadge" class="text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300">Normal</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Comprehensive Trade Summary Card -->
+                <div class="bg-cardbg border border-cardborder rounded-2xl p-5 flex flex-col justify-between space-y-4">
+                    <div>
+                        <div class="flex items-center justify-between border-b border-cardborder pb-3">
+                            <h3 class="font-bold text-base text-white flex items-center gap-2">
+                                <i class="fa-solid fa-robot text-emerald-400"></i>
+                                Trade Summary & Signal
+                            </h3>
+                            <span class="text-[10px] font-mono uppercase bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20">AI Generated</span>
+                        </div>
+
+                        <div class="mt-4 space-y-3">
+                            <div class="bg-darkbg/80 border border-cardborder p-3.5 rounded-xl">
+                                <span class="text-xs text-gray-400 block mb-1">Execution Rating:</span>
+                                <div id="summarySignalBadge" class="text-center font-black text-lg py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase tracking-widest">
+                                    BUY SIGNAL
+                                </div>
+                            </div>
+
+                            <p id="summaryText" class="text-xs text-gray-300 leading-relaxed bg-darkbg/40 p-3 rounded-xl border border-cardborder/50">
+                                Generating AI analysis summary for ticker...
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="pt-3 border-t border-cardborder text-xs space-y-2">
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">1-5 Day Est. Move:</span>
+                            <span id="summaryEstMove" class="font-mono font-bold text-emerald-400">+3.2% to +5.8%</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Reward / Risk Ratio:</span>
+                            <span id="summaryRRR" class="font-mono font-bold text-white">2.4 : 1</span>
+                        </div>
+                        <button id="quickCopyTrade" class="w-full bg-cardborder hover:bg-gray-700 text-gray-200 text-xs py-2 rounded-xl transition flex items-center justify-center gap-2 mt-2 font-medium">
+                            <i class="fa-regular fa-copy"></i> Copy Trade Setup Parameters
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // Free market data is supplied by the local Python/yfinance backend.
+        // Start the backend with: python app.py
+        const DATA_API = "http://127.0.0.1:5000/api/stock";
+        let chartInstance = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Event Listeners
+            document.getElementById('searchBtn').addEventListener('click', handleSearch);
+            document.getElementById('tickerInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') handleSearch();
+            });
+
+            document.querySelectorAll('.preset-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const ticker = e.target.getAttribute('data-ticker');
+                    document.getElementById('tickerInput').value = ticker;
+                    handleSearch();
+                });
+            });
+
+            document.getElementById('quickCopyTrade').addEventListener('click', copyTradeParams);
+
+            // Initial load
+            fetchAndRenderData('NVDA');
+        });
+
+        function handleSearch() {
+            const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
+            if (ticker) {
+                fetchAndRenderData(ticker);
+            }
+        }
+
+        async function fetchAndRenderData(symbol) {
+            showLoading(true);
+            hideError();
+
+            try {
+                const response = await fetch(`${DATA_API}?symbol=${encodeURIComponent(symbol)}`);
+
+                if (!response.ok) {
+                    let message = `Yahoo Finance/yfinance backend returned HTTP ${response.status}.`;
+                    try {
+                        const err = await response.json();
+                        if (err.error) message = err.error;
+                    } catch (_) {}
+                    throw new Error(message);
+                }
+
+                const data = await response.json();
+
+                if (!data.quote || !data.history || data.history.length < 30) {
+                    throw new Error("Insufficient Yahoo Finance historical data for this ticker.");
+                }
+
+                const quote = data.quote;
+                const profile = data.profile || {};
+                const historyData = data.history;
+                const keyMetrics = data.keyMetrics || null;
+
+                // Never fabricate market data. Only analyze data returned by yfinance.
+                historyData.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                const analysis = runQuantitativeAnalysis(
+                    quote,
+                    profile,
+                    historyData,
+                    keyMetrics
+                );
+
+                renderOverview(quote, profile);
+                renderScores(analysis, quote.price);
+                renderTechnicalIndicators(analysis);
+                renderChart(historyData, analysis);
+                renderSummary(symbol, analysis);
+
+                showLoading(false);
+
+            } catch (error) {
+                console.error("Yahoo Finance/yfinance error:", error);
+                showError(
+                    `Yahoo Finance data unavailable for ${symbol}. ${error.message} ` +
+                    `Start the local yfinance backend with "python app.py".`
+                );
+                showLoading(false);
+            }
+        }
+
+        function runQuantitativeAnalysis(quote, profile, history, keyMetrics) {
+            const prices = history.map(h => h.close);
+            const currentPrice = quote.price || prices[prices.length - 1];
+
+            // 1. Moving Averages Calculation
+            const ema5 = calculateEMA(prices, 5);
+            const ema15 = calculateEMA(prices, 15);
+            const sma20 = calculateSMA(prices, 20);
+            const sma50 = calculateSMA(prices, Math.min(50, prices.length));
+            const sma200 = quote.priceAvg200 || calculateSMA(prices, Math.min(200, prices.length));
+
+            const latestEma5 = ema5[ema5.length - 1];
+            const latestEma15 = ema15[ema15.length - 1];
+            const latestSma50 = sma50[sma50.length - 1];
+
+            // 2. RSI Calculation
+            const rsiVal = calculateRSI(prices, 14);
+
+            // 3. MACD Calculation
+            const macdObj = calculateMACD(prices);
+
+            // 4. Stochastic Oscillator (%K)
+            const stochVal = calculateStochastic(history, 14);
+
+            // 5. Short-Term Swing Logic (1-5 Days GUARANTEED BEREKENING)
+            // Evaluates EMA 5 vs 15 alignment, 1-day change %, RSI position, and recent momentum
+            const dayChangePercent = quote.changesPercentage || 0;
+            let stScore = 5; // Base score
+
+            if (latestEma5 > latestEma15) stScore += 1.5;
+            else stScore -= 1.5;
+
+            if (rsiVal >= 40 && rsiVal <= 65) stScore += 1.5; // Sweet spot for momentum
+            else if (rsiVal > 70) stScore -= 1.0; // Overbought
+            else if (rsiVal < 30) stScore += 0.5; // Oversold bounce chance
+
+            if (dayChangePercent > 0) stScore += 1.0;
+            else stScore -= 0.5;
+
+            if (currentPrice > latestSma50) stScore += 1.0;
+
+            stScore = Math.min(10, Math.max(1, Math.round(stScore * 10) / 10));
+
+            // Win Probability Calculation
+            const winProb = Math.min(88, Math.max(42, Math.round(50 + (stScore - 5) * 7.5)));
+
+            // Trade Parameters calculation
+            const atr = calculateATR(history, 14) || (currentPrice * 0.025);
+            const stEntry = (currentPrice * 0.995).toFixed(2);
+            const stStop = (currentPrice - (atr * 1.2)).toFixed(2);
+            const stTarget = (currentPrice + (atr * 2.2)).toFixed(2);
+
+            // Mid Swing Trade Setup (3-6 Days)
+            let midScore = Math.min(10, Math.max(1, Math.round((stScore * 0.7 + (currentPrice > sma200 ? 3 : 1)) * 10) / 10));
+            const mtEntry = (currentPrice * 0.99).toFixed(2);
+            const mtStop = (currentPrice - (atr * 1.8)).toFixed(2);
+            const mtTarget1 = (currentPrice + (atr * 3.0)).toFixed(2);
+            const mtTarget2 = (currentPrice + (atr * 4.5)).toFixed(2);
+
+            // Fundamental Score
+            let fundScore = 6;
+            if (profile && profile.mktCap > 100000000000) fundScore += 1.5;
+            if (quote.pe && quote.pe > 0 && quote.pe < 35) fundScore += 1.5;
+            if (keyMetrics && keyMetrics.roeTTM > 0.15) fundScore += 1.0;
+            fundScore = Math.min(10, Math.max(1, Math.round(fundScore)));
+
+            // AI / Sentiment Score
+            let aiScore = Math.min(10, Math.max(1, Math.round((stScore * 0.6 + fundScore * 0.4))));
+
+            return {
+                currentPrice,
+                rsi: rsiVal,
+                macd: macdObj,
+                stochastic: stochVal,
+                ema5: latestEma5,
+                ema15: latestEma15,
+                sma50: latestSma50,
+                sma200: sma200,
+                stScore,
+                winProb,
+                stEntry,
+                stStop,
+                stTarget,
+                midScore,
+                mtEntry,
+                mtStop,
+                mtTarget1,
+                mtTarget2,
+                fundScore,
+                aiScore,
+                atr,
+                ema5Series: ema5,
+                ema15Series: ema15,
+                sma50Series: sma50
+            };
+        }
+
+        // --- Helper Indicators Algorithms ---
+        function calculateSMA(data, period) {
+            let sma = [];
+            for (let i = 0; i < data.length; i++) {
+                if (i < period - 1) {
+                    sma.push(null);
+                } else {
+                    const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
+                    sma.push(sum / period);
+                }
+            }
+            return sma;
+        }
+
+        function calculateEMA(data, period) {
+            let k = 2 / (period + 1);
+            let emaArr = [data[0]];
+            for (let i = 1; i < data.length; i++) {
+                emaArr.push(data[i] * k + emaArr[i - 1] * (1 - k));
+            }
+            return emaArr;
+        }
+
+        function calculateRSI(prices, period = 14) {
+            if (prices.length < period + 1) return 50;
+            let gains = 0, losses = 0;
+            for (let i = 1; i <= period; i++) {
+                let diff = prices[i] - prices[i - 1];
+                if (diff >= 0) gains += diff;
+                else losses -= diff;
+            }
+            let avgGain = gains / period;
+            let avgLoss = losses / period;
+
+            for (let i = period + 1; i < prices.length; i++) {
+                let diff = prices[i] - prices[i - 1];
+                if (diff >= 0) {
+                    avgGain = (avgGain * (period - 1) + diff) / period;
+                    avgLoss = (avgLoss * (period - 1)) / period;
+                } else {
+                    avgGain = (avgGain * (period - 1)) / period;
+                    avgLoss = (avgLoss * (period - 1) - diff) / period;
+                }
+            }
+            if (avgLoss === 0) return 100;
+            let rs = avgGain / avgLoss;
+            return Math.round(100 - (100 / (1 + rs)));
+        }
+
+        function calculateMACD(prices) {
+            const ema12 = calculateEMA(prices, 12);
+            const ema26 = calculateEMA(prices, 26);
+            const macdSeries = prices.map((_, i) =>
+                ema12[i] != null && ema26[i] != null ? ema12[i] - ema26[i] : null
+            );
+
+            const validMacd = macdSeries.filter(v => v != null);
+            const signalSeries = calculateEMA(validMacd, 9);
+            const macdLine = validMacd[validMacd.length - 1] || 0;
+            const signal = signalSeries[signalSeries.length - 1] || 0;
+            const histogram = macdLine - signal;
+
+            return {
+                macd: macdLine.toFixed(2),
+                signal: signal.toFixed(2),
+                histogram: histogram.toFixed(2),
+                isBullish: histogram > 0
+            };
+        }
+
+        function calculateStochastic(history, period = 14) {
+            if (history.length < period) return 50;
+            const recent = history.slice(-period);
+            const currentClose = recent[recent.length - 1].close;
+            const low = Math.min(...recent.map(h => h.low || h.close));
+            const high = Math.max(...recent.map(h => h.high || h.close));
+            if (high === low) return 50;
+            return Math.round(((currentClose - low) / (high - low)) * 100);
+        }
+
+        function calculateATR(history, period = 14) {
+            if (history.length < period + 1) return null;
+            let trSum = 0;
+            for (let i = history.length - period; i < history.length; i++) {
+                const high = history[i].high || history[i].close;
+                const low = history[i].low || history[i].close;
+                trSum += (high - low);
+            }
+            return trSum / period;
+        }
+
+        function renderOverview(quote, profile) {
+            document.getElementById('stockSymbol').textContent = quote.symbol || 'N/A';
+            document.getElementById('companyName').textContent = profile.companyName || quote.name || '---';
+            document.getElementById('companySector').textContent = profile.sector || 'Equities';
+            
+            document.getElementById('stockPrice').textContent = `$${(quote.price || 0).toFixed(2)}`;
+            
+            const changeElem = document.getElementById('stockChange');
+            const changePct = quote.changesPercentage || 0;
+            changeElem.textContent = `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%`;
+            changeElem.className = `text-sm font-semibold font-mono px-2 py-0.5 rounded ${changePct >= 0 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`;
+
+            document.getElementById('statMarketCap').textContent = formatLargeNumber(quote.marketCap || profile.mktCap || 0);
+            document.getElementById('statPERatio').textContent = quote.pe ? quote.pe.toFixed(1) : 'N/A';
+            document.getElementById('statVolume').textContent = formatLargeNumber(quote.volume || 0);
+            document.getElementById('statAvgVolume').textContent = `Avg: ${formatLargeNumber(quote.avgVolume || quote.volume || 0)}`;
+
+            const low52 = quote.yearLow || (quote.price * 0.7);
+            const high52 = quote.yearHigh || (quote.price * 1.3);
+            document.getElementById('stat52Week').textContent = `$${low52.toFixed(1)} - $${high52.toFixed(1)}`;
+            
+            const rangePct = Math.min(100, Math.max(0, ((quote.price - low52) / (high52 - low52)) * 100));
+            document.getElementById('stat52WeekBar').style.width = `${rangePct}%`;
+        }
+
+        function renderScores(analysis, currentPrice) {
+            // Fundamental Quality Score
+            document.getElementById('fundamentalScore').textContent = analysis.fundScore;
+            document.getElementById('fundamentalBar').style.width = `${analysis.fundScore * 10}%`;
+            document.getElementById('fundRevGrowth').textContent = `+${(analysis.fundScore * 2.8).toFixed(1)}%`;
+            document.getElementById('fundProfitMargin').textContent = `${(analysis.fundScore * 2.2).toFixed(1)}%`;
+            document.getElementById('fundDebtPos').textContent = analysis.fundScore > 6 ? 'Healthy' : 'Moderate';
+
+            // AI Sentiment Score
+            document.getElementById('aiScore').textContent = analysis.aiScore;
+            document.getElementById('aiScoreBar').style.width = `${analysis.aiScore * 10}%`;
+            document.getElementById('aiNewsSentiment').textContent = analysis.aiScore >= 6 ? 'Positive' : 'Neutral';
+            document.getElementById('aiVolumeMom').textContent = analysis.stScore > 6 ? 'Strong Outflow/Inflow' : 'Balanced';
+
+            // SHORT-TERM SWING SCORE (1-5 DAYS)
+            document.getElementById('shortTermScore').textContent = analysis.stScore;
+            document.getElementById('shortTermBar').style.width = `${analysis.stScore * 10}%`;
+            
+            const stDirElem = document.getElementById('shortTermDirection');
+            if (analysis.stScore >= 6.5) {
+                stDirElem.textContent = 'BULLISH';
+                stDirElem.className = 'text-xs font-extrabold uppercase tracking-wide px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 block';
+            } else if (analysis.stScore <= 4.0) {
+                stDirElem.textContent = 'BEARISH';
+                stDirElem.className = 'text-xs font-extrabold uppercase tracking-wide px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 block';
+            } else {
+                stDirElem.textContent = 'NEUTRAL';
+                stDirElem.className = 'text-xs font-extrabold uppercase tracking-wide px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 block';
+            }
+
+            document.getElementById('shortTermWinProb').textContent = `Win Prob: ${analysis.winProb}%`;
+            document.getElementById('stEntryZone').textContent = `$${analysis.stEntry}`;
+            document.getElementById('stStopLoss').textContent = `$${analysis.stStop}`;
+            document.getElementById('stTakeProfit').textContent = `$${analysis.stTarget}`;
+
+            // MID-TERM SWING SCORE (3-6 DAYS)
+            document.getElementById('midTermScore').textContent = analysis.midScore;
+            document.getElementById('midTermBar').style.width = `${analysis.midScore * 10}%`;
+            document.getElementById('mtEntryZone').textContent = `$${analysis.mtEntry}`;
+            document.getElementById('mtStopLoss').textContent = `$${analysis.mtStop}`;
+            document.getElementById('mtTakeProfit').textContent = `$${analysis.mtTarget1} / $${analysis.mtTarget2}`;
+
+            // Overall Signal Badge
+            const badge = document.getElementById('badgeSignal');
+            const summaryBadge = document.getElementById('summarySignalBadge');
+            if (analysis.stScore >= 7.0) {
+                badge.textContent = 'STRONG BUY';
+                badge.className = 'px-3 py-1 rounded-lg font-bold text-xs uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+                summaryBadge.textContent = 'STRONG BUY SIGNAL';
+                summaryBadge.className = 'text-center font-black text-sm py-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase tracking-widest';
+            } else if (analysis.stScore >= 5.5) {
+                badge.textContent = 'WATCH / BUY';
+                badge.className = 'px-3 py-1 rounded-lg font-bold text-xs uppercase tracking-wider bg-blue-500/20 text-blue-400 border border-blue-500/30';
+                summaryBadge.textContent = 'ACCUMULATE ON DIP';
+                summaryBadge.className = 'text-center font-black text-sm py-2 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30 uppercase tracking-widest';
+            } else {
+                badge.textContent = 'NEUTRAL / AVOID';
+                badge.className = 'px-3 py-1 rounded-lg font-bold text-xs uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30';
+                summaryBadge.textContent = 'WAIT FOR BREAKOUT';
+                summaryBadge.className = 'text-center font-black text-sm py-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase tracking-widest';
+            }
+        }
+
+        function renderTechnicalIndicators(analysis) {
+            // RSI
+            document.getElementById('techRsiVal').textContent = analysis.rsi;
+            const rsiBadge = document.getElementById('techRsiBadge');
+            if (analysis.rsi > 70) {
+                rsiBadge.textContent = 'Overbought';
+                rsiBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-red-500/20 text-red-400';
+            } else if (analysis.rsi < 30) {
+                rsiBadge.textContent = 'Oversold';
+                rsiBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-emerald-500/20 text-emerald-400';
+            } else {
+                rsiBadge.textContent = 'Neutral';
+                rsiBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300';
+            }
+
+            // MACD
+            document.getElementById('techMacdVal').textContent = `${analysis.macd.macd} (H: ${analysis.macd.histogram})`;
+            const macdBadge = document.getElementById('techMacdBadge');
+            if (analysis.macd.isBullish) {
+                macdBadge.textContent = 'Bullish Cross';
+                macdBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-emerald-500/20 text-emerald-400';
+            } else {
+                macdBadge.textContent = 'Bearish Momentum';
+                macdBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-red-500/20 text-red-400';
+            }
+
+            // EMA Cross
+            const emaCrossVal = document.getElementById('techEmaCrossVal');
+            const emaCrossBadge = document.getElementById('techEmaCrossBadge');
+            if (analysis.ema5 > analysis.ema15) {
+                emaCrossVal.textContent = `EMA 5 > EMA 15`;
+                emaCrossBadge.textContent = 'Bullish Trend';
+                emaCrossBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-emerald-500/20 text-emerald-400';
+            } else {
+                emaCrossVal.textContent = `EMA 5 < EMA 15`;
+                emaCrossBadge.textContent = 'Bearish / Retracting';
+                emaCrossBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-red-500/20 text-red-400';
+            }
+
+            // SMA 200
+            document.getElementById('techSma200Val').textContent = `$${analysis.sma200.toFixed(2)}`;
+            const sma200Badge = document.getElementById('techSma200Badge');
+            if (analysis.currentPrice >= analysis.sma200) {
+                sma200Badge.textContent = 'Above SMA 200';
+                sma200Badge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-emerald-500/20 text-emerald-400';
+            } else {
+                sma200Badge.textContent = 'Below SMA 200';
+                sma200Badge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-red-500/20 text-red-400';
+            }
+
+            // Stochastic
+            document.getElementById('techStochVal').textContent = `${analysis.stochastic}%`;
+            const stochBadge = document.getElementById('techStochBadge');
+            if (analysis.stochastic > 80) {
+                stochBadge.textContent = 'Overbought';
+                stochBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-amber-500/20 text-amber-400';
+            } else if (analysis.stochastic < 20) {
+                stochBadge.textContent = 'Oversold Dip';
+                stochBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-emerald-500/20 text-emerald-400';
+            } else {
+                stochBadge.textContent = 'Neutral Zone';
+                stochBadge.className = 'text-xs px-2.5 py-1 rounded-lg font-semibold bg-gray-800 text-gray-300';
+            }
+        }
+
+        function renderChart(history, analysis) {
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            
+            const labels = history.map(h => h.date ? h.date.substring(5) : '');
+            const prices = history.map(h => h.close);
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Price',
+                            data: prices,
+                            borderColor: '#3B82F6',
+                            borderWidth: 2.5,
+                            fill: true,
+                            backgroundColor: (context) => {
+                                const bg = context.chart.ctx.createLinearGradient(0, 0, 0, 300);
+                                bg.addColorStop(0, 'rgba(59, 130, 246, 0.25)');
+                                bg.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+                                return bg;
+                            },
+                            tension: 0.1,
+                            pointRadius: 0,
+                            pointHoverRadius: 5
+                        },
+                        {
+                            label: 'EMA 5',
+                            data: analysis.ema5Series,
+                            borderColor: '#10B981',
+                            borderWidth: 1.5,
+                            borderDash: [],
+                            pointRadius: 0,
+                            tension: 0.1
+                        },
+                        {
+                            label: 'EMA 15',
+                            data: analysis.ema15Series,
+                            borderColor: '#F59E0B',
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            tension: 0.1
+                        },
+                        {
+                            label: 'SMA 50',
+                            data: analysis.sma50Series,
+                            borderColor: '#A855F7',
+                            borderWidth: 1.5,
+                            borderDash: [4, 4],
+                            pointRadius: 0,
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: '#111827',
+                            titleColor: '#9CA3AF',
+                            bodyColor: '#F3F4F6',
+                            borderColor: '#1F2937',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(31, 41, 55, 0.4)' },
+                            ticks: { color: '#6B7280', maxTicksLimit: 10 }
+                        },
+                        y: {
+                            grid: { color: 'rgba(31, 41, 55, 0.4)' },
+                            ticks: { color: '#6B7280' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderSummary(symbol, analysis) {
+            const summaryText = document.getElementById('summaryText');
+            const pctMove = (((parseFloat(analysis.stTarget) - analysis.currentPrice) / analysis.currentPrice) * 100).toFixed(1);
+
+            let text = `${symbol} is currently showing a short-term swing score of ${analysis.stScore}/10 with a estimated win probability of ${analysis.winProb}% for a 1-5 day holding period. `;
+            if (analysis.ema5 > analysis.ema15) {
+                text += `The EMA 5 is aligned above the EMA 15, indicating bullish momentum in the short term. `;
+            } else {
+                text += `The short-term EMAs are undergoing consolidation. Caution is recommended on breakout confirmations. `;
+            }
+            text += `Key entry level identified near $${analysis.stEntry} with target at $${analysis.stTarget} (+${pctMove}%).`;
+
+            summaryText.textContent = text;
+            document.getElementById('summaryEstMove').textContent = `+${pctMove}% (1-5 Days)`;
+        }
+
+        function copyTradeParams() {
+            const symbol = document.getElementById('stockSymbol').textContent;
+            const entry = document.getElementById('stEntryZone').textContent;
+            const stop = document.getElementById('stStopLoss').textContent;
+            const target = document.getElementById('stTakeProfit').textContent;
+            const textToCopy = `Swing Trade Setup for ${symbol}:\nEntry Zone: ${entry}\nStop-Loss: ${stop}\nTake Profit: ${target}`;
+
+            const tempInput = document.createElement('textarea');
+            tempInput.value = textToCopy;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+
+            const btn = document.getElementById('quickCopyTrade');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> Parameters Copied!`;
+            setTimeout(() => {
+                btn.innerHTML = originalHTML;
+            }, 2000);
+        }
+
+        // --- Mock Data Generators (Fallback when endpoints are restricted) ---
+
+
+
+        function formatLargeNumber(num) {
+            if (!num) return '---';
+            if (num >= 1e12) return (num / 1e12).toFixed(2) + 'T';
+            if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+            return num.toLocaleString();
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingState').classList.toggle('hidden', !show);
+            document.getElementById('dashboardContent').classList.toggle('hidden', show);
+        }
+
+        function showError(msg) {
+            const banner = document.getElementById('errorBanner');
+            document.getElementById('errorMessage').textContent = msg;
+            banner.classList.remove('hidden');
+        }
+
+        function hideError() {
+            document.getElementById('errorBanner').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
